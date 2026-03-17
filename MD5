@@ -1,0 +1,8 @@
+84463f9ea91ba37922e1fe4eaab1a339 *DESCRIPTION
+b8122488c9c059f31d1858f9770dec74 *NAMESPACE
+25ba771b2de941c616f39572d05843e0 *R/cdcanthro.R
+25d444c3f817bd9c8f074ee19ad48ca5 *data/NHanes.rda
+f62ce06df8ba29ba09879d036e51faf0 *data/cdc__ref__data.rda
+d33949bc40f3084cf4424a5a047c019d *man/NHanes.Rd
+2a0ee483bcee04328e3ebeadd0128c9d *man/cdc__ref__data.Rd
+3c1bb8bf02d473c0c97c2aa282136001 *man/cdcanthro.Rd

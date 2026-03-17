@@ -1,0 +1,18 @@
+Package: cdcanthro
+Title: Sex- and Age-Standardized Metrics from the Centers for Disease
+        and Control (CDC) Growth Charts
+Version: 0.1.0
+Authors@R: person("David", "Freedman", email = "DavidSFreedman@gmail.com", role = c("aut", "cre"))
+Description: Calculation of sex- and age-standardized growth metrics based on the 2000 CDC growth charts. Provides functions to generate z-scores and percentiles for weight, height, and BMI using the LMS method (lambda-mu-sigma). Includes extended BMI-z scores for values above the 95th percentile to more accurately characterize the sex- and age-standardized BMI of children with very high BMIs.
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+Depends: R (>= 2.10)
+Imports: data.table, stats
+RoxygenNote: 7.3.3
+NeedsCompilation: no
+Packaged: 2026-03-12 16:42:52 UTC; davidfreedman
+Author: David Freedman [aut, cre]
+Maintainer: David Freedman <DavidSFreedman@gmail.com>
+Repository: CRAN
+Date/Publication: 2026-03-17 19:00:17 UTC
