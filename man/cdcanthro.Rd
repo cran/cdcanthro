@@ -14,7 +14,7 @@ such as extended BMIz and percent of the 50th and 95th percentiles. The
 extended BMI metrics are used for BMIs above the 95th percentile.
 }
 \usage{
-cdcanthro(data, age, wt, ht, bmi, all = FALSE)
+cdcanthro(data, age, wt, ht, bmi, all_vars = FALSE)
 }
 
 \arguments{
@@ -23,7 +23,7 @@ cdcanthro(data, age, wt, ht, bmi, all = FALSE)
   \item{wt}{weight in kg. \emph{Optional.} If omitted, WAZ-related metrics will be \code{NA}.}
   \item{ht}{height in cm. \emph{Optional.} If omitted, HAZ-related metrics will be \code{NA}.}
   \item{bmi}{BMI in \code{kg/m^2}. \emph{Optional.} If omitted but both \code{wt} and \code{ht} are supplied, BMI is computed as \code{wt / (ht / 100)^2}. If all three of \code{wt}, \code{ht}, and \code{bmi} are omitted, the function stops with an error.}
-  \item{all}{logical. If \code{TRUE}, returns additional intermediate variables (L, M, S values; sigma; and the distance-from-median metrics from Freedman et al.). Default is \code{FALSE}.}
+  \item{all_vars}{logical. If \code{TRUE}, returns additional intermediate variables (L, M, S values; sigma; and the distance-from-median metrics from Freedman et al.). Default is \code{FALSE}.}
 }
 \details{
 The function expects the child's sex to be named \code{sex}; either upper- or
@@ -52,7 +52,7 @@ would have an age in months of 120.641. For additional information on age,
 see the documentation for \code{agemos} at the CDC SAS program page (see
 \code{\link{cdcanthro}} \sQuote{See Also} section).
 
-If \code{all = TRUE}, all variables in the Freedman et al. paper will be
+If \code{all_vars = TRUE}, all variables in the Freedman et al. paper will be
 output, along with the L, M, and S values for each child and the value of
 sigma for the half-normal distribution.
 
@@ -68,7 +68,6 @@ For children with obesity, BMI percentiles are calculated as
 where \code{p95} is the sex- and age-specific 95th percentile, and
 \code{sigma} is the scale parameter of the half-normal distribution. Values
 of sigma for children with obesity are based on formulas in Wei et al.
-(2020).
 
 The class of the returned object matches the class of the input \code{data}:
 a \code{data.frame} input returns a \code{data.frame}, a \code{data.table}
@@ -89,7 +88,7 @@ Variables in output:
   \item{\code{bmip95}}{BMI expressed as a percentage of the 95th percentile; 120 percent is the lower threshold for severe obesity.}
 }
 
-If \code{all = TRUE}, additional BMI metrics described in Freedman et al.
+If \code{all_vars = TRUE}, additional BMI metrics described in Freedman et al.
 are also returned. These express BMI as distance or percent distance from
 the median. To convert to percent of the median, add 100 to the values.
 }
@@ -99,8 +98,7 @@ The input data must not contain a column named \code{seq_}, as this name is
 used internally to preserve row order. Rename any such column before calling
 \code{cdcanthro()}.
 
-\code{library(cdcanthro)} will also load (but not attach) the
-\pkg{data.table} and \pkg{tibble} packages.
+\code{library(cdcanthro)} will also load the \pkg{data.table} and \pkg{tibble} packages.
 
 Do not quote the argument names. Use \code{cdcanthro(data, age, wt, ht, bmi)},
 not \code{cdcanthro(data, 'age', 'wt', 'ht', 'bmi')}.
@@ -111,7 +109,8 @@ CDC LMS percentile data files: \url{https://www.cdc.gov/growthcharts/percentile_
 
 CDC extended BMI data files: \url{https://www.cdc.gov/growthcharts/extended-bmi-data-files.htm}
 
-CDC SAS programs and \code{agemos} documentation: \url{https://www.cdc.gov/growth-chart-training/hcp/computer-programs/sas.html}
+CDC SAS programs and more information on \code{agemos} in Table 1 of 
+\url{https://www.cdc.gov/growth-chart-training/hcp/computer-programs/sas.html}
 }
 
 \references{
@@ -139,7 +138,7 @@ data[, bmi := wtk / (htc / 100)^2]
 out <- cdcanthro(data, age = agem, wt = wtk, ht = htc, bmi = bmi)
 round(out, 2)[1:5]
 
-out <- cdcanthro(data, age = agem, wt = wtk, ht = htc, bmi = bmi, all = TRUE)
+out <- cdcanthro(data, age = agem, wt = wtk, ht = htc, bmi = bmi, all_vars = TRUE)
 round(out, 2)[1:5]
 
 d <- data.frame(sex = c(1, 2, 1, 2, 2),

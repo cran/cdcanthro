@@ -1,11 +1,12 @@
 Package: cdcanthro
 Title: Sex- and Age-Standardized Metrics from the Centers for Disease
         Control and Prevention (CDC) Growth Charts
-Version: 0.2.0
-Date: 2026-05-21
+Version: 0.2.1
+Date: 2026-06-24
 Authors@R: person("David", "Freedman", 
                   email = "DavidSFreedman@gmail.com", 
-                  role = c("aut", "cre"))
+                  role = c("aut", "cre"),
+                  comment=c(ORCID = '0000-0001-8014-0289'))
 Description: Calculation of sex- and age-standardized growth metrics 
     based on the 2000 CDC growth charts. Provides functions to generate 
     z-scores and percentiles for weight, height, and body mass index (BMI) 
@@ -17,11 +18,13 @@ Encoding: UTF-8
 LazyData: true
 ByteCompile: true
 Depends: R (>= 3.5.0)
-Imports: data.table (>= 1.12.8), tibble, stats
+Imports: data.table (>= 1.15.0), tibble, stats
 Suggests: testthat (>= 3.0.0)
+Config/roxygen2/version: 8.0.0
 NeedsCompilation: no
-Packaged: 2026-05-22 19:01:59 UTC; davidfreedman
-Author: David Freedman [aut, cre]
+Packaged: 2026-07-14 20:14:19 UTC; davidfreedman
+Author: David Freedman [aut, cre] (ORCID:
+    <https://orcid.org/0000-0001-8014-0289>)
 Maintainer: David Freedman <DavidSFreedman@gmail.com>
 Repository: CRAN
-Date/Publication: 2026-05-22 19:20:02 UTC
+Date/Publication: 2026-07-14 20:50:02 UTC
