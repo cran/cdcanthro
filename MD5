@@ -1,10 +1,11 @@
-971b75fcca0226a07d03f37af1a738b3 *DESCRIPTION
+fa03e743b2fcaa0c15a13e42de0fa606 *DESCRIPTION
 56cdc381d843cd1bc903bbbd5243573a *NAMESPACE
-6de23620c4f71303c7711d187246ba27 *R/cdcanthro.R
-a4bc382707d1f623433a972a43483f48 *R/sysdata.rda
-73281e764a64f4a76c1c1534a23d9d4b *R/zzz.R
+8ff32a7ec25e318a3639b6df86da77c1 *NEWS.md
+3f5f3b186ee8cc4dba63571e6d0f6c56 *R/cdcanthro.R
+b3338c2f296463382cdc297f005b8cc2 *R/sysdata.rda
+533839446f70bde34a1050627ce80586 *build/partial.rdb
 25d444c3f817bd9c8f074ee19ad48ca5 *data/NHanes.rda
 09ada1192b4ba96f004dfb0299c6b58a *data/cdc_ref_data.rda
 d33949bc40f3084cf4424a5a047c019d *man/NHanes.Rd
 c61fc7f7c0f6d3854f206a8517c9553a *man/cdc_ref_data.Rd
-5b1e20cf24772d8fb18e1776a60da26f *man/cdcanthro.Rd
+c564a20bdc80c73f029ca511c0e48acf *man/cdcanthro.Rd

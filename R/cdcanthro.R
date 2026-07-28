@@ -83,7 +83,7 @@ cdcanthro <- function(data, age, wt, ht, bmi, all_vars = FALSE) {
   nms <- grepv('^sex$|^SEX$', names(data))
   if (length(nms) != 1) {
     stop("A child's sex MUST be named 'sex' or 'SEX'.
-             But your data can't contain both 'sex' and 'SEX'.")
+          But your data can't contain both 'sex' and 'SEX'.")
   }
   if (nms != 'sex') setnames(data, nms, 'sex')
   
@@ -113,7 +113,7 @@ cdcanthro <- function(data, age, wt, ht, bmi, all_vars = FALSE) {
   if (!has_ht) 
     warning("Height variable not found: HAZ etc not calculated.")
   if (!have_bmi) 
-    warning("BMI not found and can't be calculated: all BMI metrics are NA.")
+    warning("BMI not found and can't be calculated: no BMI metrics will be calculated.")
   if (!has_wt && !has_ht && !has_bmi)
     stop("At least one of weight, height, or BMI must be present in data.")
   
@@ -127,10 +127,9 @@ cdcanthro <- function(data, age, wt, ht, bmi, all_vars = FALSE) {
     # Compute unique values first (tiny vector)
     usex <- unique(sx)
     first_char <- substr(as.character(usex), 1, 1)
-    usexn <- fcase(
-      first_char %chin% c("1", "B", "M", "b", "m"), 1L,
-      first_char %chin% c("2", "G", "F", "g", "f"), 2L
-    )
+    # Vectorized map directly on the tiny `usex` vector
+    usexn <- fifelse(first_char %chin% c("1", "B", "M", "b", "m"), 1L,
+             fifelse(first_char %chin% c("2", "G", "F", "g", "f"), 2L, NA_integer_))
     # Map back instantly using fast binary matching
     sexn <- usexn[chmatch(sx, usex)]
   }
@@ -157,13 +156,13 @@ cdcanthro <- function(data, age, wt, ht, bmi, all_vars = FALSE) {
   
   # --- AGE ALIGNMENT ---
   # If input ages contain zero fractional elements, the data are assumed to represent
-  # rounded integer age-months. Per CDC tracking protocols, a midpoint adjustment 
-  # of +0.5 months is added to normalize tracking. If even one decimal age is found, 
+  # rounded integer age-months. In this case, a midpoint adjustment 
+  # of +0.5 months is added to age. If even one decimal age is found, 
   # the data are treated as exact/continuous timeline markers and left intact.
   # Drops out the second it hits a continuous decimal value
   uages <- unique(lean_data$age)
   if (!any(uages %% 1 != 0, na.rm = TRUE)) {
-    message("All ages are integers so 0.5 months has been added...")
+    warning("All ages are integers so 0.5 months has been added.")
     set(lean_data, j = "age", value = lean_data$age + 0.5)
     uages <- uages + 0.5 # Update unique ages to match
   }
@@ -214,104 +213,99 @@ cdcanthro <- function(data, age, wt, ht, bmi, all_vars = FALSE) {
       bmi_sdp2 = (bm * (1 + 2 * bl * bs)^(1 / bl)) - bm, 
       p95      = lms_pct(bm, bl, bs, .qn95),
       sigma    = fifelse(sexn == 1L, 
-                     round(0.3728 + 0.5196 * (age / 12) - 0.0091 * (age / 12)^2, 8), 
-                     round(0.8334 + 0.3712 * (age / 12) - 0.0011 * (age / 12)^2, 8))
-                     # rounded to agree with Hales / NCHS
-      
+                    round(0.3728 + 0.5196 * (age / 12) - 0.0091 * (age / 12)^2, 8), 
+                    round(0.8334 + 0.3712 * (age / 12) - 0.0011 * (age / 12)^2, 8))
+                    # rounded to agree with Hales / NCHS
     )] 
   }
   
-  # Merge ref_data with input data:
-  # JOIN: Restrict ref_data to only those (sexn, age) combinations that actually
-  # appear in the input data, then right-join data onto it. 
-  dt <- ref_data[lean_data, on = .(sexn, age)]
-  # dt <- collapse::join(lean_data, ref_data, on = c("sexn", "age"), how = "left")
-  # join is NOT faster
-  
-  # Modified Z-score uses pre-computed limits
+  # Get number of valid ages in data
+  n_inrange <- lean_data[data.table::between(age, 24.0, 239.9999), .N]
+  n_excluded <- nrow(data) - n_inrange
+  if (n_excluded > 0) {
+    warning(prettyNum(n_excluded, big.mark = ","), " ",
+            "Input row(s) had ages in months that were < 24 or >= 240 months. ",
+            "The CDC Growth Charts apply to ages 24 months up to (but not ",
+            "including) 240 months. Rows with ages outside ",
+            "this range will have NAs for the calculated variables.")
+  }
+  rm(n_excluded, n_inrange)
 
+  # mere ref_data with lean_data, keep only lean_data rows
+  dt <- ref_data[lean_data, on = .(sexn, age)]
+  # collapse::join is NOT faster
+  
+  # Modified Z-score uses pre-computed values for SD2
   if (has_wt) {
     dt[, let(
       waz     = ((wt / wm)^wl - 1) * inv_wl_ws,
-      mod_waz = (wt - wm) / (0.5 * fifelse(wt < wm, wt_sdm2, wt_sdp2)),
-      wap     = 100 * pnorm(((wt / wm)^wl - 1) * inv_wl_ws)
+      mod_waz = (wt - wm) / (0.5 * fifelse(wt < wm, wt_sdm2, wt_sdp2))
     )]
+    dt[abs(wl) < 0.01, waz := log(wt / wm) / ws]
+    # z-scores use the standard LMS formula, switching to the logarithmic (L=0) 
+    # form when |L| < 0.01, matching the CDC SAS implementation.
+    
+    dt[, wap := 100 * pnorm(waz)]
     dt[, c('wl', 'wm', 'ws', 'wt_sdm2', 'wt_sdp2', 'inv_wl_ws') := NULL]
   }
   
   if (has_ht) {
     dt[, let(
       haz     = ((ht / hm)^hl - 1) * inv_hl_hs,
-      mod_haz = (ht - hm) / (0.5 * fifelse(ht < hm, ht_sdm2, ht_sdp2)),
-      hap     = 100 * pnorm(((ht / hm)^hl - 1) * inv_hl_hs)
+      mod_haz = (ht - hm) / (0.5 * fifelse(ht < hm, ht_sdm2, ht_sdp2))
     )]
+    dt[abs(hl) < 0.01, haz := log(ht / hm) / hs]  
+    dt[, hap := 100 * pnorm(haz)]
     dt[, c('hl', 'hm', 'hs', 'ht_sdm2', 'ht_sdp2', 'inv_hl_hs') := NULL]
   }
   
-  if (have_bmi) { 
+  if (have_bmi) {
+    # --- ALWAYS COMPUTED ---
     dt[, bmi_ratio := bmi / bm]
+    dt[, let(
+      perc_median = (bmi_ratio - 1) * 100,
+      bmip95      = 100 * (bmi / p95),
+      mod_bmiz    = (bmi - bm) / (0.5 * fifelse(bmi < bm, bmi_sdm2, bmi_sdp2)),
+      bmiz        = (bmi_ratio^bl - 1) * inv_bl_bs
+    )]
+    # dt[abs(bl) < 0.01, bmiz := log(bmi / bm) / bs]
+    # bmi_l never comes close to 0
+    dt[, let(bmip = 100 * pnorm(bmiz))]
+    dt[, let(ebp = bmip, ebz = bmiz)]
+    
+    # --- all_vars EXTRAS ONLY ---
     if (isTRUE(all_vars)) {
-      # Path A: all_vars is TRUE #
-      # Step 1: Base variables and division helper
       dt[, let(
-        p50         = bm,
-        perc_median = (bmi / bm - 1) * 100,
-        bmip95      = 100 * (bmi / p95),
-        mod_bmiz    = (bmi - bm) / (0.5 * fifelse(bmi < bm, bmi_sdm2, bmi_sdp2)),
-        dist_median = bmi - bm
+        p50         = bm,              # copy: bm must survive as bmi_m
+        dist_median = bmi - bm,
+        z1          = (bmi_ratio - 1) / bs,
+        z0          = log(bmi_ratio) / bs
       )]
-      # Step 2: Compute bz, z1, and z0 using the pre-computed bmi_ratio
       dt[, let(
-        bz = ((bmi_ratio)^bl - 1) * inv_bl_bs,
-        z1 = (bmi_ratio - 1) / bs,
-        z0 = log(bmi_ratio) / bs
-      )]
-      # Step 3: Compute remaining variables requiring downstream sequential inputs
-      dt[, let(
-        bmip                = 100 * pnorm(bz),
         adj_dist_median     = z1 * sref * mref,
         adj_perc_median     = z1 * 100 * sref,
         log_perc_median     = z0 * 100 * bs,
         adj_log_perc_median = z0 * 100 * sref
       )]
-    } else {
-      # Path B: all_vars is FALSE (Fast Path)
-      # Step 1: Base variables and division helper
-      dt[, let(
-        p50         = bm,
-        perc_median = (bmi_ratio - 1) * 100,
-        bmip95      = 100 * (bmi / p95),
-        mod_bmiz    = (bmi - bm) / (0.5 * fifelse(bmi < bm, bmi_sdm2, bmi_sdp2))
-      )]
-      # Step 2: Safe sequential pass for bz using the pre-computed bmi_ratio
-      dt[, bz := ((bmi_ratio)^bl - 1) * inv_bl_bs]
-      # Step 3: Safe sequential pass for bmip and clean up helper
-      dt[, let(bmip  = 100 * pnorm(bz)) ]
-    }
-  
-    # Drop temporary reference columns no longer needed
-    dt[, c('bmi_sdm2', 'bmi_sdp2', 'bmi_ratio', 'inv_bl_bs') := NULL]
+      setnames(dt, cc(bl, bm, bs), cc(bmi_l, bmi_m, bmi_s))
+    } 
+    drop_cols <- intersect(c('bmi_sdm2', 'bmi_sdp2', 'inv_bl_bs', 'bmi_ratio', 
+                             'bm', 'mref', 'sref', 'sexn'),  
+                           names(dt))
+    dt[, (drop_cols) := NULL]
   }
-  
-  setnames(dt,cc(bl,bm,bs),cc(bmi_l,bmi_m,bmi_s))
-  x <- intersect(cc(mref,sref,sexn), names(dt));   dt[,(x):=NULL]
   
   # Create Extended z-score for BMI >=95th P
   # For children tracking above the 97th percentile, traditional LMS z-scores 
   # flatten out artificially. 
   if (have_bmi) {
-    dt[, let(ebz = bz, ebp = bmip)]
     dt[bmip >= 95, ebp := 90 + 10 * pnorm((bmi - p95) / sigma)]
     # Cap extended z at 8.21: the largest possible ebz is ~8.2095
-    dt[bmip >= 95, ebz := fcase(
-           ebp / 100 < 1, qnorm(ebp / 100),
-           default = 8.21
-           )]
+    dt[bmip >= 95, ebz := fifelse(ebp / 100 < 1, qnorm(ebp / 100), 8.21)]
 
-  # Rename: bz -> orig_bmiz, bmip -> orig_bmip, ebp -> bmip, ebz -> bmiz.
-  # This preserves the original LMS-based values under 'orig_*' names 
+  # Rename: This preserves the original LMS-based values under 'orig_*' names 
   setnames(dt,
-             cc(bz,        bmip,      ebp,  ebz),
+             cc(bmiz,        bmip,      ebp,  ebz),
              cc(orig_bmiz, orig_bmip, bmip, bmiz))
   }
 
@@ -345,9 +339,27 @@ cdcanthro <- function(data, age, wt, ht, bmi, all_vars = FALSE) {
   # data and dt_out must both be in original row order
   if (is.unsorted(data$seq_)) setorder(data, seq_)
   if (is.unsorted(dt_out$seq_)) setorder(dt_out, seq_)
-  data[, seq_ := NULL]; dt_out[, seq_ := NULL]
-  dtot <- cbind(data,dt_out)
-
+   # Remove seq_ as it's no longer needed
+   data[, seq_ := NULL]; dt_out[, seq_ := NULL]
+   
+   # Add dt_out's columns directly into data
+   for (col in names(dt_out)) {
+     set(data, j = col, value = dt_out[[col]])
+   }
+    # Now 'data' contains everything, so rename it to match your final logic
+   dtot <- data; 
+   rm(dt_out, data) 
+   
+  # The following applies ONLY if lean_data was limited to 24 to 239.999 months
+  # subset to surviving rows [24 months, < 240 months), in matching order
+  # Because seq_ was created as 1:N on the original data, 
+  # each value in dt_out$seq_ serves as an explicit pointer back to the 
+  # exact row position in data where that record originated.
+  # dtot <- data[dt_out$seq_]
+  # rm(data,dt_out)
+  # data[, seq_ := NULL]; dt_out[, seq_ := NULL]
+  # dtot <- cbind(data, dt_out)
+   
   # Reorder columns to ensure the original ones appear first
   desired_order <- c(orig_cols, setdiff(names(dtot), orig_cols))
   setcolorder(dtot, desired_order, skip_absent=TRUE)
