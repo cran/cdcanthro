@@ -1,4 +1,12 @@
-# cdcanthro 0.4.0
+# cdcanthro 0.5.0 (2026-10-30)
+
+* Zero and negative measurements now become NA rather than producing Inf or nonsense values.
+* Fewer warnings and messages
+* Stricter input checks, such as when one column, cdc_z(data, age, ht), is passed for 
+  two measures
+* A test suite now exists
+
+# cdcanthro 0.4.0 (2026-08-30)
 
 * Add two new functions to the package, who_z and gradual_z. 
 * who_z calculates z-scores based on the WHO growth standards for 
@@ -16,7 +24,7 @@
 * Also note that the cdcanthro function will be phased out in the future, and calling   
   cdcanthro() now gives a warning. The new name is cdc_z.
 
-#  cdcanthro 0.3.0
+# cdcanthro 0.3.0
 
 * Added logarithmic form of the z-score calculation when |L| < 0.01, to
   match the CDC SAS implementation for weight and height. BMI_L never approaches 0.

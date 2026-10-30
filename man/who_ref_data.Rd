@@ -15,7 +15,8 @@ followed by '_' and then by 'l', 'm', or 's' representing the LMS parameters.
 Sexn is coded as '1' (boys) and '2' (girls).
 
 In contrast to the sex- and age-standardized metrics, weight-for-length is weight standardized
-for sex and length; it represents the distribution of weights for a specific length.
+for sex and length; it represents the distribution of weights for a specific length. Note that
+the length/height reference values are given in 0.01 cm increments.
 
 The 'denom' variable indicates if the row represents age-standardization or len-standardization.
 }

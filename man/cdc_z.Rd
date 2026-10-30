@@ -8,17 +8,18 @@ Generate Sex- and Age-Standardized Weight, Height, and BMI Metrics From the CDC 
 Generate z-scores, percentiles, and other sex- and age-standardized metrics
 for weight, height, and BMI based on the 2000 CDC growth charts. For children with obesity,
 the extended BMI z-scores and percentiles are calculated.  The calculations are restricted
-to children with ages between 24.0 (inclusive) and < 240 months. Note that \code{cdc_z}
-is the preferred name; the previous name, \code{cdcanthro},
-will work but will be deprecated
+to children with ages between 24.0 (inclusive) and < 240 months.  For younger children, use \code{who_z}.  
+Note that \code{cdc_z} is the preferred name; the previous name, \code{cdcanthro}, will work but is deprecated.
 
 The BMI metrics include z-scores and percentiles, along with newer metrics
 such as extended BMIz and percent of the 50th and 95th percentiles. The
 extended BMI metrics are used for BMIs above the 95th percentile.
 }
 \usage{
-cdc_z(data, age, wt, ht, bmi, sex_code, all_vars = FALSE)
-cdcanthro(data, age, wt, ht, bmi, sex_code, all_vars = FALSE)
+cdc_z(data, age = agemos, wt = wt, ht = ht, bmi = bmi, 
+            sex_code = 1:2, all_vars = FALSE)
+cdcanthro(data, age = agemos, wt = wt, ht = ht, bmi = bmi, 
+            sex_code = 1:2, all_vars = FALSE)
 }
 \arguments{
   \item{data}{a \code{data.frame}, \code{data.table}, or tibble (\code{tbl_df}) containing the input data. The class of the returned object matches the class of \code{data}.}
@@ -26,7 +27,7 @@ cdcanthro(data, age, wt, ht, bmi, sex_code, all_vars = FALSE)
   \item{wt}{Weight in kg. \emph{Optional.} If omitted, WAZ-related metrics will be missing.}
   \item{ht}{Height in cm. \emph{Optional.} If omitted, HAZ-related metrics will be missing.}
   \item{bmi}{BMI in \code{kg/m^2}. \emph{Optional.} If omitted but both \code{wt} and \code{ht} are supplied, BMI is computed as \code{wt / (ht / 100)^2}. If all three of \code{wt}, \code{ht}, and \code{bmi} are omitted, the function stops with an error.}
-  \item{sex_code}{Numeric coding for sex if other than 1 for boys and 2 for girls. 
+  \item{sex_code}{Numeric, single-digit coding for sex if other than 1 for boys and 2 for girls. 
        \emph{Optional.}}
   \item{all_vars}{logical. If \code{TRUE}, returns additional intermediate variables 
        (L, M, S values; sigma; and the distance-from-median metrics from Freedman et al.). 
@@ -38,24 +39,25 @@ Argument values can be quoted (e.g., age='agemos') or unquoted (age = agemos).
 The function expects the child's sex to be named \code{sex}; either upper- or
 lower-case is fine. You cannot have both \code{SEX} and \code{sex} in your data.
 Values can be coded as \code{boys/girls}, \code{b/g}, \code{male/female},
-\code{m/f}, or \code{1/2}. Character values can be in upper- or lower-case;
-only the first character is considered. If sex is numeric and not coded as 1/2, specify this 
-in the optional \code{sex_code} argument; the code for boys is the first number.  
-For example, 0/1 coding would be specified as \code{sex_code} = 0:1 or \code{sex_code} = 
-c(0,1).
+\code{m/f}, or \code{1/2}. Character values can be upper- or lower-case, and 
+only the first character is considered. Be aware that a code of 'missing' will be interpreted 
+as a boy.  
+
+If sex is numeric and not coded as 1/2, specify this in the optional \code{sex_code} argument; 
+the code for boys is the first number.  For example, 0/1 coding would be specified as 
+\code{sex_code} = 0:1 or \code{sex_code} = c(0,1).
 
 Weight is in kg, height is in cm, and BMI is in \code{kg/m^2}.
 
-At least one of \code{wt}, \code{ht}, or \code{bmi} must be present. Metrics
-that cannot be calculated from the supplied variables will be missing from the output,
-and warnings will indicate the missing variables. For example,
-supplying only \code{wt} returns WAZ but omits HAZ and BMI metrics from the output.
+At least one of \code{wt}, \code{ht}, or \code{bmi} must be present. Metrics that cannot be 
+calculated from the supplied variables are silently omitted from the output. If a supplied 
+column name doesn't exist in data (a likely typo), a warning is issued.
 
 Age in months should be given as accurately as possible because the function
 linearly interpolates between completed months of age.  If ages are given as the 
 completed number of months (as in NHANES), add 0.5 because values such as 36 represent the 
 interval \code{[36, 37)} months. If the function detects integer numbers for all ages, it
-will add 0.5 to all age values.
+will add 0.5 to all age values during the calculations; the input ages are not changed.
 
 If age is in days, divide by 30.4375 so that a child who is 3672 days old
 would have an age in months of 120.641. For additional information on age,
@@ -97,9 +99,9 @@ Variables in output:
 \describe{
   \item{\code{waz}, \code{haz}, \code{bmiz}}{Sex- and age-standardized z-scores for weight, height, and BMI. \code{bmiz} is based on the 2000 CDC growth charts for non-obese children and extended BMIz for obese children.}
   \item{\code{wap}, \code{hap}, \code{bmip}}{Sex- and age-standardized percentiles for weight, height, and BMI. \code{bmip} is based on the extended BMI metrics for obese children.}
-  \item{\code{mod_waz}, \code{mod_haz}, \code{mod_bmiz}}{Modified z-scores.}
-  \item{\code{orig_bmip}, \code{orig_bmiz}}{Original BMI percentiles and z-scores based solely on the LMS method. \code{orig_bmiz} and \code{bmiz} are identical for children with BMI at or below the 95th percentile.}
-  \item{\code{p50}, \code{p95}}{Sex- and age-specific 50th and 95th percentiles of BMI.}
+  \item{\code{mod_waz}, \code{mod_haz}, \code{mod_bmiz}}{Modified z-scores used to flag outliers; see the CDC SAS program.}
+  \item{\code{orig_bmip}, \code{orig_bmiz}}{Original BMI percentiles and z-scores based solely on the LMS method. \code{orig_bmiz} and \code{bmiz} are identical for BMIs at or below the 95th percentile.}
+  \item{\code{p95}}{The 95th percentile for BMI in the reference data for each sex and age.}
   \item{\code{bmip95}}{BMI expressed as a percentage of the 95th percentile; 120 percent is the lower threshold for severe obesity.}
   \item{\code{perc_median}}{Percent difference between the child's BMI and the median (50th percentile) BMI for the child's sex and age.}
 }
@@ -109,12 +111,12 @@ are also returned. These express BMI as distance or percent distance from
 the median. To convert to percent of the median, add 100 to the values.
 }
 \note{
-\code{library(cdcanthro)} will also load the \pkg{data.table} package.
-
-Note that argument names can be quoted or unquoted: \code{cdc_z(data, age, wt, ht, bmi)},
+Argument names can be quoted or unquoted: \code{cdc_z(data, age, wt, ht, bmi)},
 and \code{cdc_z(data, 'age', 'wt', 'ht', 'bmi')} produce the same result.
 }
 \seealso{
+\code{who_z} for standardized values for children < age 2.0 y based on the WHO charts
+
 CDC LMS percentile data files: \url{https://www.cdc.gov/growthcharts/percentile_data_files.htm}
 
 CDC extended BMI data files: \url{https://www.cdc.gov/growthcharts/extended-bmi-data-files.htm}
@@ -130,7 +132,8 @@ Kuczmarski RJ, Ogden CL, Guo SS, Grummer-Strawn LM, Flegal KM, Mei Z, et al.
 
 Wei R, Ogden CL, Parsons VL, Freedman DS, Hales CM.
 A method for calculating BMI z-scores and percentiles above the 95th percentile
-of the CDC growth charts. \emph{Annals of Human Biology} 2020;47:514--21.
+of the CDC growth charts. \emph{Annals of Human Biology} 2020;47(6):514--521.
+\doi{10.1080/03014460.2020.1808065}
 
 Freedman DS, Woo JG, Ogden CL, Xu JH, Cole TJ.
 Distance and Percent Distance from Median BMI as Alternatives to BMI z-score.
@@ -156,8 +159,13 @@ round(d, 2)
 d <- data.frame(sex = c(0, 1, 0),
                 age = c(120.5, 60.5, 180.5),
                 wt  = c(40, 25, 65))
-d <- tibble::as_tibble(d)
 cdc_z(d, age, wt, sex_code = 0:1) # note use of sex_code
+
+# tibble input returns a tibble (requires the tibble package)
+if (requireNamespace("tibble", quietly = TRUE)) {
+  d_tbl <- tibble::as_tibble(d)
+  cdc_z(d_tbl, age, wt, sex_code = 0:1)
+}
 
 head(NHanes) # age is given as completed months
 d <- data.table::copy(NHanes)

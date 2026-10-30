@@ -13,9 +13,9 @@ if (getRversion() >= "2.15.1") {
 
     ## ---- shared by both functions -------------------------------------
     # data.table syntax
-    '.', '..v', '..keep', 'i.wflz', 'i.wt',
+    '.', '..v', 'i.wt',
     # row ordering, sex, agemos
-    'seq__', 'sexn', 'sex', 'agemos', 'sex_n', 'sex_code',
+    'sexn', 'sex', 'agemos', 'sex_n', 'sex_code', 'uages',
     # measurements
     'wt', 'bmi',
     # BMI z-scores / LMS columns common to both
@@ -47,7 +47,7 @@ if (getRversion() >= "2.15.1") {
 
     ## ---- who_z() --------------------------------------------------
     # input columns
-    'agedays', 'lenhei', 'headc', 'len_hei', 'head_circ',
+    'agedays', 'lenhei', 'headc',
     # reference table keys and internal columns
     'denom', 'len', 'len_2',
     # LMS columns from the WHO reference data

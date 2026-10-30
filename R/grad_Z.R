@@ -31,15 +31,7 @@
 # SHARED HELPERS
 # --------------
 # This file depends on R/utils-anthro.R for shared plumbing:
-#  - as_data_table_safe(), restore_input_type(), snapshot_names() for the
-#    same input-type-detection and column-name-snapshot handling that
-#    whoanthro() and cdcanthro() use.
-#  - resolve_col_name() to turn each column-name argument's substitute()d
-#    expression into a string, accepting either a bare symbol (whowtz =
-#    who_waz) or a quoted string (whowtz = "who_waz") -- the same
-#    quote-tolerant resolution whoanthro() and cdcanthro() use for their
-#    own column-name arguments. See utils-anthro.R for how it tells the
-#    two forms apart without ever evaluating a bare symbol.
+#  - as_data_table_safe(), restore_input_type()are symbol.
 #
 # One helper from utils-anthro.R is deliberately NOT reused here, because
 # gradual_z()'s column-name arguments behave differently from whoanthro()'s
@@ -98,7 +90,7 @@ gradual_z <- function(data,
   # *live* reference to its names vector, and data.table's by-reference :=
   # calls below would otherwise silently make orig_cols "catch up" to
   # include every column added afterwards too.
-  orig_cols <- snapshot_names(data)
+  orig_cols <- data.table::copy(names(data))
 
   # Capture column-name arguments as strings. Each accepts either a bare
   # symbol (agedays = agedays) or a quoted string (agedays = "agedays") --

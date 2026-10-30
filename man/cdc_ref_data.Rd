@@ -9,8 +9,8 @@ LMS parameters (L, M, S) for age- and sex-standardized growth metrics.
 \format{
 A data.table with columns for sex, age, and LMS values. Parameter names represent 
 the first letter of weight, height, or BMI; this is followed by 'l', 'm', or 's' for the
-LMS parameters. 'mref' and 'sref' are the M and S parameters at 240 months of age. For
-sexn, '1' are boys and '2' are girls.
+LMS parameters. 'mref' and 'sref' are the M and S parameters for BMI at 240 months of age. 
+For sexn, '1' = boys and '2' = girls.
 }
 
 \usage{
@@ -19,5 +19,6 @@ data(cdc_ref_data)
 
 \source{
 \url{https://www.cdc.gov/growthcharts/percentile_data_files.htm}
+\url{https://www.cdc.gov/growthcharts/extended-bmi-data-files.htm}
 }
 \keyword{datasets}

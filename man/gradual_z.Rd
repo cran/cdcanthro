@@ -59,7 +59,9 @@ For each row, age in days determines which of three regions applies:
 }
 This produces a transition that is continuous at both boundaries, avoiding
 the discontinuity that would result from switching abruptly from WHO to CDC
-references at a single cutoff age.
+references at a single cutoff age.  Note that if \code{data} already contains 
+\code{grad_waz}, \code{grad_haz}, or \code{grad_bmiz}, the column is overwritten 
+and a \code{warning()} is issued.
 
 For ages between 2 and 5 years, the gradual z-score is a weighted
 average of the WHO and CDC z-scores:
@@ -90,9 +92,9 @@ pair is found, that measure is skipped with an informational \code{message()}.
 If only one column of a pair is found, that measure is skipped with a \code{warning()} instead. 
 If no complete pair is found, a \code{warning()} is issued.
 
-In the output, each measure's columns are grouped together in the order CDC,
-WHO, gradual (e.g. \code{who_waz}, \code{waz}, \code{grad_waz}), for weight,
-then height, then BMI; any other original columns (including \code{agedays}) come first.
+In the output, each measure's columns are grouped together in the order WHO, CDC, and 
+gradual (e.g. \code{who_waz}, \code{waz}, \code{grad_waz}), for weight,
+then height, then BMI; any other input columns (including \code{agedays}) come first.
 }
 
 \seealso{

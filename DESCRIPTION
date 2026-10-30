@@ -1,7 +1,7 @@
 Package: cdcanthro
 Title: Standardized Metrics Based on the CDC and WHO Growth Charts
-Version: 0.4.0
-Date: 2026-08-30
+Version: 0.5.0
+Date: 2026-10-30
 Authors@R: c(
     person("David", "Freedman",
            role = c("aut", "cre"),
@@ -27,11 +27,12 @@ ByteCompile: true
 NeedsCompilation: no
 Depends: R (>= 3.5.0)
 Imports: data.table (>= 1.15.0), stats, utils
-Suggests: tibble
-Packaged: 2026-08-30 14:51:44 UTC; davidfreedman
+Suggests: tibble, callr, testthat (>= 3.1.5)
+Config/testthat/edition: 3
+Packaged: 2026-10-30 14:40:54 UTC; davidfreedman
 Author: David Freedman [aut, cre] (ORCID:
     <https://orcid.org/0000-0001-8014-0289>),
   Carrie Daymont [ctb]
 Maintainer: David Freedman <DavidSFreedman@gmail.com>
 Repository: CRAN
-Date/Publication: 2026-08-31 15:20:03 UTC
+Date/Publication: 2026-10-30 18:10:02 UTC
