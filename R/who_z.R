@@ -1,4 +1,4 @@
-# whoanthro: WHO growth-standard z-scores for young children (0 to 5 y, 1826 days)
+# who_z(): WHO growth-standard z-scores for young children (0 to 5 y, 1826 days)
 #
 # Computes WHO Child Growth Standard z-scores, plus biologically-implausible-
 # value (BIV) flags, for weight-for-age, length/height-for-age, BMI-for-age,
@@ -10,7 +10,7 @@
 # Weight-for-length is 'for length' and does not go over 110 cm.
 #
 # sex can be coded 1/2, BOYS/GIRLS, b/g, m/f (case-insensitive).
-# wt in kg, length/height (lenhei) in cm, age in DAYS.
+# wt in kg, length/height (lenhei) in cm, age in days.
 #
 # 'BIV' flags (match the CRAN anthro package): f* = 1 if the z-score is outside the
 # WHO plausibility range, 0 if inside, NA if the z-score is NA.
@@ -22,18 +22,19 @@
 #
 # ROW ALIGNMENT
 # -------------
-# No rows are ever dropped and nothing is re-sorted, so results stay positionally
-# aligned with the input from start to finish. The reference joins use
-# nomatch = NA, which returns exactly one row per input row, in input order:
-# children outside the reference range simply get NA LMS values and therefore NA
-# z-scores. Because of this there is no row-id column, no copy of the input, and
-# no join at the end -- the computed columns are written straight onto the
-# working copy with set().
+# No rows are ever dropped and nothing is re-sorted, so results stay
+# positionally aligned with the input from start to finish. The age-based
+# lookup returns one dref1 row index (or NA) per row of `work`, in `work`'s
+# order; the weight-for-length lookup is a join whose j expression is
+# likewise evaluated once per row of `work`. Children outside a reference
+# range get NA reference values and therefore NA z-scores. There is no
+# row-id column, no copy of the input, and no join at the end -- computed
+# columns are written straight onto `work` and then onto `data` with set().
 #
 # INTERNAL WORKING COLUMNS
 # -------------------------
 # All standardized-name columns (agedays, wt, lenhei, headc, bmi, sex_n, len_2)
-# used for the reference joins live in a private `work` table built fresh from
+# used for the reference lookups live in a private `work` table built fresh from
 # the caller's data -- `data` itself is never written to until the very end,
 # when only brand-new result columns (who_waz, fwaz, ...) are added. This
 # means there is no "track what we added, then delete it" step, and no way
@@ -43,6 +44,14 @@
 
 # ---- helpers ----------------------------------------------------------------
 
+# LMS z-score, z = ((x/M)^L - 1) / (L*S), with the WHO adjustment used for
+# the weight-based indicators (correct = TRUE): beyond +/-3 the z-score is
+# recomputed on a linear scale between the +/-2 and +/-3 SD values,
+#   z =  3 + (x - SD3pos) / (SD3pos - SD2pos)   for z >  3
+#   z = -3 - (x - SD3neg) / (SD3neg - SD2neg)   for z < -3
+# (WHO 2006, Methods and Development, chapter 7). Length/height and head
+# circumference are not adjusted (correct = FALSE). NA inputs stay NA:
+# which() drops them from idx_hi / idx_lo.
 calc_who_z <- function(var, l, m, s, correct = FALSE) {
   z <- ((var / m)^l - 1) / (l * s)
 
@@ -126,10 +135,6 @@ who_z <- function(data,
    has_bmi    <- bmi_arg$has
    have_bmi   <- has_bmi || (has_wt && has_lenhei)
 
-   # Collect every "variable not supplied" issue into one vector instead of
-   # calling warning() separately for each -- a call with wt, lenhei, and bmi
-   # all missing used to raise three separate warnings; now it raises one.
-
    if (!agedays_var %in% names(data))
       stop("Age variable '", agedays_var, "' not found in data.")
    av <- data[[agedays_var]]
@@ -140,11 +145,19 @@ who_z <- function(data,
      warning("Non-integer agedays found; rounded to whole days.")
      av <- round(av)
    }
+   # A negative age is a data error (e.g. exam date before birth date). The
+   # rows are kept and get NA, as for any age outside the reference range,
+   # but say so once, as gradual_z() does.
+   n_neg <- sum(av < 0, na.rm = TRUE)
+   if (n_neg > 0L)
+     warning(n_neg, " row(s) have negative 'agedays'; their results are NA. ",
+             "Check your data.", call. = FALSE)
 
    if (!any(has_wt, has_lenhei, has_headc, has_bmi))
      stop("No measurement columns found. Supply at least one of wt, lenhei, headc, bmi.")
 
-   # check for non-numeric variables
+   # Report every non-numeric measurement column in one error rather than
+   # stopping at the first.
    bad <- character(0)
    if (has_wt && !is_num_or_all_na(data[[wt_arg$var]]))
      bad <- c(bad, sprintf("weight variable '%s' (kg)", wt_arg$var))
@@ -164,7 +177,8 @@ who_z <- function(data,
    # original order, so the results below line up with `data` position for
    # position.
    work <- data.table(agedays = av,
-                      sex_n = normalize_sex(data[[sex_var]], sex_code = sex_code))
+                      sex_n = normalize_sex(data[[sex_var]],
+                      sex_code = sex_code))
 
    if (nrow(work) > 0L && all(is.na(work$sex_n)))
       stop("No valid sex values found. Expected M/F, ",
@@ -174,7 +188,8 @@ who_z <- function(data,
    if (has_lenhei) work[, lenhei := num_col(data[[lenhei_arg$var]])]
    if (has_headc)  work[, headc  := num_col(data[[headc_arg$var]])]
 
-   # code 0 and negative values to NA - see utils
+   # Zero and negative measurements become NA; see set_nonpositive_na() in
+   # utils-anthro.R.
    set_nonpositive_na(work, c("wt", "lenhei", "headc"))
 
    if (has_bmi) {
@@ -192,61 +207,69 @@ who_z <- function(data,
    set_nonpositive_na(work, c("bmi"))
 
    # ---- age-based indicators (waz, lhaz, bmiz, headcz) -----------------------
-   # Only 'forage' rows can match on agedays, and we carry just the LMS columns
-   # we actually use -- anything else would be duplicated across every data row.
+   # Only 'forage' rows can match on agedays; keep just the twelve L/M/S
+   # columns the z-scores need.
    lmscols <- c('wei_l', 'wei_m', 'wei_s', 'len_l', 'len_m', 'len_s',
                 'bmi_l', 'bmi_m', 'bmi_s', 'headc_l', 'headc_m', 'headc_s')
    lmscols <- intersect(lmscols, names(cdcanthro::who_ref_data))
 
-   # if (!is.data.table(cdcanthro::who_ref_data)) {
-   #   who_ref_data <- as.data.table(who_ref_data)
-   # }
    dref1 <- cdcanthro::who_ref_data[denom=='forage' & agedays <= 1826,
-                                c('sexn', 'agedays', lmscols), with = FALSE]
-   # dref1's reference column is 'sexn' (from who_ref_data); work's is 'sex_n'.
-   # nomatch = NA (the default) keeps every row of `work`, in `work`'s order:
-   # ages over 1826 days, and unrecognized sex, get NA LMS values and thus NA
-   # z-scores. This is what makes the positional assignment below valid, and it
-   # assumes who_ref_data has at most one row per (sexn, agedays).
-   dt1 <- dref1[work, on = c(sexn = 'sex_n', 'agedays')]
+                                    c('sexn', 'agedays', lmscols), with = FALSE]
 
-   # Calculate z-scores
-   if (has_wt){
-      dt1[, waz := calc_who_z(wt, wei_l, wei_m, wei_s, correct = TRUE)]
-   }
+   # Look up each child's reference row by index instead of joining.
+   #
+   # with which = TRUE, dref1[work, on = ...] returns an integer vector with
+   # one element per row of `work`, in `work`'s order: the row number in dref1
+   # of the (sexn, agedays) match, or NA where there is none (ages over 1826
+   # days, unrecognized sex, missing age). Nothing is re-sorted and no rows
+   # are dropped, so idx[i] belongs to work[i].
+   #
+   # rc('wei_m') is then dref1$wei_m[idx]: the reference value for every
+   # child, NA where idx is NA, which is what makes the z-scores NA for
+   # children outside the reference range. Pulling one column at a time
+   # through idx avoids materializing an n-row table carrying all twelve
+   # L/M/S columns, and columns for measures that were not supplied are never
+   # touched. cdc_z() uses the same pattern.
+   #
+   # This relies on dref1 having at most one row per (sexn, agedays); if it
+   # had duplicates, length(idx) would exceed nrow(work) and the stopifnot()
+   # would fail. tests/testthat/test-reference-data.R checks the grid directly.
+   # dref1's key column is 'sexn' (from who_ref_data); work's is 'sex_n'.
+   idx <- dref1[work, on = c(sexn = 'sex_n', 'agedays'), which = TRUE]
+   stopifnot(length(idx) == nrow(work))
+   rc  <- function(col) dref1[[col]][idx]
 
-   # lhaz length/height for age z-score  (correct = FALSE)
-   if (has_lenhei){
-      dt1[, lhaz := calc_who_z(lenhei, len_l, len_m, len_s, correct = FALSE)]
-   }
-
-   # bmiz  (weight-based -> correct = TRUE)
-   if (have_bmi){
-      dt1[, bmiz := calc_who_z(bmi, bmi_l, bmi_m, bmi_s, correct = TRUE)]
-   }
-
-   # head circumference z-score  (correct = FALSE)
-   if (has_headc){
-      dt1[, headcz := calc_who_z(headc, headc_l, headc_m, headc_s, correct = FALSE)]
-   }
+   # Weight-based measures (waz, bmiz) use the WHO adjustment beyond +/-3 SD
+   # (correct = TRUE); length/height and head circumference do not.
+   if (has_wt)
+     work[, waz := calc_who_z(wt, rc('wei_l'), rc('wei_m'), rc('wei_s'),
+                              correct = TRUE)]
+   if (has_lenhei)
+     work[, lhaz := calc_who_z(lenhei, rc('len_l'), rc('len_m'), rc('len_s'),
+                               correct = FALSE)]
+   if (have_bmi)
+     work[, bmiz := calc_who_z(bmi, rc('bmi_l'), rc('bmi_m'), rc('bmi_s'),
+                               correct = TRUE)]
+   if (has_headc)
+     work[, headcz := calc_who_z(headc, rc('headc_l'), rc('headc_m'), rc('headc_s'),
+                                 correct = FALSE)]
 
    # ---- weight-for-length (with reference interpolation) ---------------------
-   # who_ref_data has length to 2 digits, so probably can delete the approx
-   # and just round(len,2) before merging
+   # who_ref_data has length on a 0.01 cm grid; lengths off that grid are
+   # linearly interpolated so that, e.g., 67.125 cm is handled exactly.
 
    if (has_wt && has_lenhei) {
       dref2 <- cdcanthro::who_ref_data[denom=='forlen' & len >= 45 & len <= 110,
                             .(sexn,len,wfl_l,wfl_m,wfl_s)]
 
-      # get ulens in 'work'
+      # Unique lengths needing a reference row (len_2 is NA after 730 days,
+      # so this is the <= 2 y subset).
       ulens <- unique(work$len_2[!is.na(work$len_2)])
       needs_interp <- any(!ulens %in% dref2$len)
 
-      # --- REFERENCE CHART INTERPOLATION ---
-      # If the input contains lengths not mapped directly inside the standard WHO
-      # tables, we execute linear interpolation via stats::approx across
-      # LMS parameters to generate custom growth metrics matching the user's data
-
+      # Lengths off the 0.01 cm grid get L, M, S by linear interpolation
+      # within sex. rule = 1 returns NA outside 45-110 cm, so those children
+      # get NA wflz.
       if (needs_interp) {
         setkey(dref2, sexn, len)
 
@@ -260,22 +283,21 @@ who_z <- function(data,
       }, by = sexn]
       }
 
-      # i.wt reaches into work (the i-table) for the weight column —
+      # i.wt reaches into work (the i-table) for the weight column --
       # dref2 has no wt column, but the prefix documents
-      # where the value comes from.
+      # where the value comes from. The j expression is evaluated once per
+      # row of `work`, in `work`'s order, so the result can be set by position.
       # dref2's reference columns are 'sexn'/'len'; work's are 'sex_n'/'len_2'.
-     set(dt1, j = 'wflz',
-         value = dref2[work, on = c(sexn = 'sex_n', len = 'len_2'),
-                       calc_who_z(i.wt, wfl_l, wfl_m, wfl_s, correct = TRUE)])
-     # dt1[agedays > 730, wflz := NA_real_]   # WFL applies only to length (<= 2 y)
-  }
-
+      set(work, j = 'wflz',
+          value = dref2[work, on = c(sexn = 'sex_n', len = 'len_2'),
+                        calc_who_z(i.wt, wfl_l, wfl_m, wfl_s, correct = TRUE)])
+   }
 
    # ---- write the results onto `data` ----------------------------------------
-   # dt1 has exactly nrow(data) rows in the same order, so each column is copied
+   # work has exactly nrow(data) rows in the same order, so each column is copied
    # across by position with set() -- no row id, no join, no second copy of the
    # input. BIV flags come out NA wherever the z-score is NA.
-   zs <- intersect(c('waz', 'lhaz', 'wflz', 'bmiz', 'headcz'), names(dt1))
+   zs <- intersect(c('waz', 'lhaz', 'wflz', 'bmiz', 'headcz'), names(work))
 
    # BIV plausibility range for each z-score: a value outside [lo, hi] is flagged.
    # Ranges match the CRAN anthro package; note waz is asymmetric.
@@ -300,8 +322,8 @@ who_z <- function(data,
    overlap <- intersect(names(data), out_cols)
    if (length(overlap) > 0) {
      new_nm <- utils::tail(make.unique(c(setdiff(names(data), overlap), out_cols,
-                                  paste0(overlap, "0"))),
-                    length(overlap))
+                                         paste0(overlap, "0"))),
+                           length(overlap))
      setnames(data, overlap, new_nm)
      warning(paste(overlap, collapse = ", "),
              " in original data renamed to ",
@@ -309,17 +331,17 @@ who_z <- function(data,
              " to avoid conflict with computed values.")
    }
 
-   stopifnot(nrow(dt1) == nrow(data))
+   stopifnot(nrow(work) == nrow(data))
    for (z in zs) {
-      v <- dt1[[z]]
-      # z-scores are prefixed 'who_' so they never collide with cdcanthro()'s
-      set(data, j = paste0('who_', z), value = v)
-      set(data, j = fnm[[z]],
-          value = as.integer(!v %between% c(biv[[z]]['lo'], biv[[z]]['hi'])))
+     v <- work[[z]]
+     # z-scores are prefixed 'who_' so they never collide with cdc_z()'s
+     set(data, j = paste0('who_', z), value = v)
+     set(data, j = fnm[[z]],
+         value = as.integer(!v %between% c(biv[[z]]['lo'], biv[[z]]['hi'])))
    }
 
    if (!has_bmi && have_bmi) {
-      set(data, j = "bmi", value = dt1$bmi)
+     set(data, j = "bmi", value = work$bmi)
    }
 
    # return same type of data that was input

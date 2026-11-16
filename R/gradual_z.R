@@ -1,10 +1,11 @@
-#
-# gradual_z function for gradual transition WHO-CDC z-score smoothing
+# gradual_z(): z-scores with a gradual transition from the WHO to the CDC
+# growth references between 2 and 5 years of age.
 #
 # Blends WHO and CDC growth-chart z-scores over the 2-to-5-year transition
-# window recommended by CDC: WHO reference values are used through
-# 730 days of age, CDC reference values are used from 1826 days onward, and
-# a linearly age-weighted average of the two is used in between.
+# window: WHO z-scores are used through 730 days of age, CDC z-scores from
+# 1826 days onward, and a linearly age-weighted average of the two in
+# between. Method: Daymont C, Hwang W, Paul IM, Shur N, Freedman DS.
+# Pediatrics 2025;156(3):e2025070697, doi:10.1542/peds.2025-070697.
 #
 # Each of the three measures (weight, height/length, BMI) is handled
 # independently: a gradual z-score is only computed for a measure if BOTH
@@ -31,32 +32,17 @@
 # SHARED HELPERS
 # --------------
 # This file depends on R/utils-anthro.R for shared plumbing:
-#  - as_data_table_safe(), restore_input_type()are symbol.
+#  - as_data_table_safe() / restore_input_type() for input-type preservation
+#  - resolve_col_name() for quoted-or-unquoted column-name arguments
 #
-# One helper from utils-anthro.R is deliberately NOT reused here, because
-# gradual_z()'s column-name arguments behave differently from whoanthro()'s
-# and cdcanthro()'s by design:
-#
-#  - resolve_optional_var() treats an argument as "not supplied" based on
-#    missing(the_arg) -- correct for whoanthro()/cdcanthro(), where a
-#    column-name default like `wt = wt` is a placeholder that only takes
-#    effect if the caller explicitly writes `wt = wt`. gradual_z()'s
-#    defaults (whowtz = who_waz, cdcwtz = waz, ...) are, by contrast,
-#    meant to be REAL, LIVE fallback column names -- they are exactly
-#    whoanthro()'s and cdcanthro()'s own default output column names, so
-#    that `gradual_z(data)` with no column arguments at all just works
-#    against their output. Gating that on missing() would break the
-#    "just works after running whoanthro()+cdcanthro()" convenience:
-#    calling gradual_z(data) without naming whowtz would resolve to
-#    has_wt = FALSE even when data actually has a who_waz column, since
-#    missing(whowtz) is TRUE whenever the caller doesn't write it out.
-#    gradual_z() instead always resolves the argument to a name (default
-#    or explicit, quoted or not) via resolve_col_name(substitute(.)) and
-#    then simply checks whether that name exists in data -- which is what
-#    the who_present/cdc_present checks below do. This also means the
-#    defaults are unaffected by accepting quotes: an unsupplied argument's
-#    substitute()d expression is always its bare-symbol default, never a
-#    string, so it always takes resolve_col_name()'s deparse() path.
+# gradual_z() resolves its column-name arguments with resolve_col_name()
+# directly rather than with resolve_optional_var(). The defaults
+# (whowtz = who_waz, cdcwtz = waz, ...) are who_z()'s and cdc_z()'s output
+# names, so gradual_z(data) with no column arguments works on their output.
+# resolve_optional_var() would also warn about each supplied-but-absent
+# column individually; here absence is handled per WHO/CDC *pair* (both,
+# one, or neither present) with its own messages below, and a second
+# warning per column would be noise.
 
 
 gradual_z <- function(data,
@@ -69,8 +55,8 @@ gradual_z <- function(data,
                       cdcbmiz  = bmiz)
 {
   # 'data' must actually be supplied, and must be a type this function
-  # knows how to handle -- otherwise the error would come from deep inside
-  # data.table::as.data.table() instead of pointing at the real problem.
+  # knows how to handle -- otherwise the error would come from inside the
+  # data.table conversion instead of pointing at the real problem.
   if (missing(data) || is.null(data)) {
     stop("'data' is required.")
   }
@@ -84,8 +70,8 @@ gradual_z <- function(data,
   type <- as_data_table_safe(data)
   data <- type$data
 
-  # Save the original column names before adding any internal columns, so
-  # the output can restore this column order at the end. snapshot_names()
+  # Save the original column names before adding any columns, so the
+  # output can restore this column order at the end. data.table::copy()
   # (not plain names()) is required: names(data) for a data.table is a
   # *live* reference to its names vector, and data.table's by-reference :=
   # calls below would otherwise silently make orig_cols "catch up" to
@@ -112,9 +98,11 @@ gradual_z <- function(data,
     stop(sprintf("Column '%s' (agedays) must be numeric.", col_agedays))
   }
 
-  # Helper for the gradual z-score calculation.
-  # who_wt and cdc_wt are linear in age (years) and sum to 3 over the
-  # 2-5 year transition window, so blended is a proper convex combination.
+  # The gradual z-score (Daymont et al. 2025). who_wt and cdc_wt are linear
+  # in age (years) and sum to 3 over the 2-5 year window, so blended is a
+  # convex combination that equals the WHO z-score at 730 days and the CDC
+  # z-score at 1826 days. Rows with NA days match no fcase() condition and
+  # get NA (fcase's default).
   blend_z <- function(who, cdc, days) {
     who_wt  <- 5 - (days / 365.25)
     cdc_wt  <- (days / 365.25) - 2

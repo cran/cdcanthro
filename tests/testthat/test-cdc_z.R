@@ -163,7 +163,9 @@ test_that("equivalent sex codings give identical results", {
 })
 
 test_that("unrecognized sex gives NA for that row only", {
-  out <- cdc_z(data.frame(sex = c(1, 9, NA), agemos = ages[2], wt = 20))
+  expect_warning(
+    out <- cdc_z(data.frame(sex = c(1, 9, NA), agemos = ages[2], wt = 20)),
+    "unrecognized sex code")
   expect_false(is.na(out$waz[1]))
   expect_true(all(is.na(out$waz[2:3])))
 })

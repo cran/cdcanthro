@@ -17,8 +17,8 @@ Calculation of sex- and age-standardized growth metrics using
     
     There is also a function, gradual_z(), which smooths the discontinuities at age 2.0 
     resulting, in large part, from the use of different reference data.  For example, a girl 
-    weighing 9.9 kg would be at the 10th percentile the day before her second birthday 
-    and at the 2nd percentile the following day.
+    weighing 9.9 kg would be at the WHO 10th percentile the day before her second birthday 
+    and at the CDC 2nd percentile the following day.
     }
 \author{
 David S Freedman

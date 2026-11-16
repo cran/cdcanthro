@@ -107,33 +107,51 @@ validate_sex_code <- function(sex_code) {
    invisible(sex_code)
 }
 
+# Sex codes:
+# Recognized character codes (compared after trimws() and tolower()).
+# Whole values are matched, not just the first letter, so that codes such
+# as 'missing', 'mujer' or 'not stated' become NA instead of being read as
+# a sex from their first letter.
+.male_words   <- c("m", "male", "males", "b", "boy", "boys")
+.female_words <- c("f", "female", "females", "g", "girl", "girls")
+
 # Map a vector of sex codes to 1L (boys) / 2L (girls) / NA_integer_.
 #
-# sex_code = c(male_code, female_code) says what "boy"/"girl" look like in a
-# *numeric* sx (default 1/2; pass e.g. 0:1 for a 0/1-coded column). The same
-# two values are also honored as the leading digit of a *character* code, so
-# a caller using a non-default sex_code doesn't have two different codings
-# to remember for numeric vs. character sex columns. Letter codes B/M for
-# boys and G/F for girls are always recognized regardless of sex_code, since
-# they're unambiguous on their own.
+# Numeric sx: sex_code[1] -> 1L, sex_code[2] -> 2L.
+# Character/factor sx: the two sex_code values written as text (e.g. "1",
+# "2"), or the words in .male_words / .female_words, case-insensitive.
 #
-# Numeric input takes a fast path via fcase(). Character input maps only the
-# *unique* values in `sx` and expands back with chmatch(), so
-# substr()/toupper() run on a handful of distinct codes instead of on every
-# row.
+# Non-missing values that match neither code become NA, and ONE warning
+# reports how many rows that affected and which values were seen, so a
+# coding problem cannot silently drop children from an analysis.
+#
+# Character input maps only the *unique* values and expands back with
+# chmatch(), so the string work runs on a handful of distinct codes.
 normalize_sex <- function(sx, sex_code = 1:2) {
-   validate_sex_code(sex_code)
-   if (is.numeric(sx)) {
-      return(fcase(sx == sex_code[1], 1L, sx == sex_code[2], 2L, default = NA_integer_))
-   }
-   sx    <- as.character(sx)
-   usex  <- unique(sx)
-   fc    <- toupper(substr(usex, 1L, 1L))
-   male_codes   <- c(as.character(sex_code[1]), "B", "M")
-   female_codes <- c(as.character(sex_code[2]), "G", "F")
-   usexn <- fifelse(fc %chin% male_codes, 1L,
-                     fifelse(fc %chin% female_codes, 2L, NA_integer_))
-   usexn[chmatch(sx, usex)]
+  validate_sex_code(sex_code)
+  if (is.numeric(sx)) {
+    out <- fcase(sx == sex_code[1], 1L, sx == sex_code[2], 2L,
+                 default = NA_integer_)
+  } else {
+    sx    <- as.character(sx)
+    usex  <- unique(sx)
+    key   <- tolower(trimws(usex))
+    male_codes   <- c(format(sex_code[1], scientific = FALSE), .male_words)
+    female_codes <- c(format(sex_code[2], scientific = FALSE), .female_words)
+    usexn <- fifelse(key %chin% male_codes, 1L,
+                     fifelse(key %chin% female_codes, 2L, NA_integer_))
+    out <- usexn[chmatch(sx, usex)]
+  }
+  bad <- !is.na(sx) & is.na(out)
+  if (any(bad) && !all(is.na(out))) {
+    vals <- unique(sx[bad])
+    warning(sum(bad), " row(s) have an unrecognized sex code (",
+            paste0("'", utils::head(vals, 5), "'", collapse = ", "),
+            if (length(vals) > 5) ", ..." else "",
+            "); their results are NA. See 'Details' or 'sex_code' in the help page.",
+            call. = FALSE)
+  }
+  out
 }
 
 as_data_table_safe <- function(data) {
@@ -172,7 +190,7 @@ num_col <- function(x) if (is.numeric(x)) x else as.numeric(x)
 
 # Inverse of as_data_table_safe(): restore the caller's original type.
 restore_input_type <- function(data, input_was_df, input_was_tibble) {
-  if (input_was_df) return(as.data.frame(data))
+  if (input_was_df) return(setDF(data))
   if (input_was_tibble) {
     if (requireNamespace("tibble", quietly = TRUE)) {
       return(tibble::as_tibble(data))

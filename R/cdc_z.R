@@ -1,11 +1,22 @@
-# who_z() now live together in R/zzz.R.
+# cdc_z(): CDC 2000 growth-chart z-scores and percentiles for weight, height,
+# and BMI (24.0 to < 240 months), including the extended BMI metrics
+# (Wei et al. 2020) for BMIs at or above the 95th percentile.
 #
-# Input-type preservation has moved to R/utils-anthro.R, where who_z()
-# uses the same helpers -- see that file for the shared implementations.
+# The globalVariables() declarations for the column names used in
+# data.table calls by cdc_z(), who_z() and gradual_z() live together in
+# R/globals.R. Input-type preservation and argument resolution live in
+# R/utils-anthro.R, where who_z() uses the same helpers.
+#
+# Pipeline: validate arguments -> build a thin `work` table (age, sex,
+# measurements) in the input's row order -> align ages (+0.5 for completed
+# months) -> interpolate the reference L, M, S to the ages present -> look
+# up each row's reference values by index -> compute z-scores, percentiles
+# and the extended BMI metrics on `work` -> bind the requested columns to
+# the input and return it in the input's class.
 
+# z at the 95th percentile; p95 = M * (1 + L*S*.qn95)^(1/L)
 .qn95 <- qnorm(0.95)
-
-# warns once per session about changing from cdcanthro (deprecated) to cdc_z
+# cdcanthro() is the old name of cdc_z(); it warns once per session.
 .cdcanthro_state <- new.env(parent = emptyenv())
 .cdcanthro_state$warned <- FALSE
 
@@ -27,22 +38,9 @@ cdcanthro <- function(data, age = agemos, wt = wt, ht = ht, bmi = bmi,
 }
 
 # -------------------------------------------------------------------------
-# Main Anthropometric Function
+# cdc_z()
 # -------------------------------------------------------------------------
-#
-# ROW ALIGNMENT
-# -------------
-# No row-id column is used. Results stay positionally aligned with the
-# input because `work` (below) is built directly from `data`, in `data`'s
-# row order, and the reference join uses nomatch = NA, which returns
-# exactly one row per row of `work` -- children outside the reference
-# range simply get NA LMS values and therefore NA z-scores. This is the
-# same invariant who_z() relies on for its own reference joins (see the
-# ROW ALIGNMENT note in who_z.R): as long as the interpolated
-# reference table has at most one row per (sexn, age), the join can
-# neither drop nor reorder rows, so the computed columns can be written
-# straight onto `data` with set() at the end -- no row-id column, no
-# separate output table to re-sort, and no join needed at the end.
+
 cdc_z <- function(data,
                       age = agemos,
                       wt = wt,
@@ -65,6 +63,7 @@ cdc_z <- function(data,
 
   # sex_code = c(male_code, female_code) tells normalize_sex() how a numeric
   # (or numeric-looking) sex column is coded, for datasets that don't use
+  # the package default of 1 = male, 2 = female (e.g. sex_code = 0:1 for a
   # 0/1-coded column). validate_sex_code() lives in utils-anthro.R and is
   # checked again inside normalize_sex() itself -- called here too so a
   # malformed sex_code fails immediately.
@@ -80,12 +79,11 @@ cdc_z <- function(data,
   sex_var <- resolve_sex_column(data)
 
   # --- ARGUMENT PARSING ---
-  # age is required. wt, ht, and bmi are optional -- if omitted by the
-  # caller, resolve_optional_var()'s $var is NULL, which propagates to
-  # has_wt / has_ht / has_bmi = FALSE below. A supplied-but-non existent
-  # column name (a likely typo) is warned about immediately by
-  # resolve_optional_var(), and remembered via $typo so the generic
-  # "not found" warning below doesn't also fire for the same problem.
+  # age is required. wt, ht and bmi are optional: if the named column is not
+  # in data, resolve_optional_var() returns $var = NULL and $has = FALSE, and
+  # the metrics that need it are left out of the output. A supplied-but-
+  # nonexistent name (a likely typo) is warned about inside
+  # resolve_optional_var().
   age_var <- resolve_col_name(substitute(age))
   if (!age_var %in% names(data))
     stop("Age variable '", age_var, "' not found in data.")
@@ -124,11 +122,11 @@ cdc_z <- function(data,
     stop("The following must be numeric: ", paste(bad, collapse = "; "), ".")
 
   # --- WORK TABLE EXTRACTION ---
-  # Build a thin working table directly from `data`, to protect the
-  # original data and give the reference join a small table to match
-  # against. `work` is built by direct column extraction, so it stays in
-  # exactly `data`'s row order -- this is what the ROW ALIGNMENT note above
-  # relies on.
+  # Build a thin working table directly from `data`, so the caller's
+  # columns are never written to and the reference lookup has only the
+  # columns it needs. `work` is built by direct column extraction, so it
+  # stays in exactly `data`'s row order; the positional lookup below
+  # (idx / rc()) relies on this.
   sex_n <- normalize_sex(data[[sex_var]], sex_code = sex_code)
 
   work <- data.table(
@@ -143,48 +141,54 @@ cdc_z <- function(data,
   if (has_wt) work[, wt := num_col(data[[wt_arg$var]])]
   if (has_ht) work[, ht := num_col(data[[ht_arg$var]])]
 
-  # code 0 and negative values to NA - see utils
+  # Zero and negative measurements become NA; see set_nonpositive_na() in
+  # utils-anthro.R.
   set_nonpositive_na(work, c("wt", "ht"))
 
   if (has_bmi) {
     work[, bmi := num_col(data[[bmi_arg$var]])]
   } else if (has_wt && has_ht) {
     work[, bmi := (wt * 10000) / (ht * ht)]
-  } else {
-    work[, bmi := NA_real_]
   }
 
   set_nonpositive_na(work, c("bmi"))
 
   # --- AGE ALIGNMENT ---
-  # If input ages contain zero fractional elements, the data are assumed to represent
-  # rounded integer age-months. In this case, a midpoint adjustment
-  # of +0.5 months is added to age. If even one decimal age is found,
-  # the data are left intact.
+  # If no age has a fractional part, the ages are taken to be completed
+  # months (as NHANES reports them) and 0.5 is added so that 36 means the
+  # midpoint of [36, 37). One non-integer age anywhere disables this and
+  # the ages are used as given. The caller's data are not modified.
   uages <- unique(work$age)
   uages <- uages[!is.na(uages)]
 
   if (length(uages) > 0L && !any(abs(uages - round(uages)) > 1e-8)) {
     warning("All ages are integers so 0.5 months has been added before the ",
-            "calculations. See Details. The input data was not modified.")
+            "calculations to align with CDC intervatls. See Details. ",
+            "The input data was not modified.")
     set(work, j = "age", value = work$age + 0.5)
     uages <- uages + 0.5  # Update unique ages to match
   }
 
   # --- REFERENCE CHART INTERPOLATION ---
-  # If the input contains specific ages not contained in reference data,
-  # linearly interpolate via stats::approx for all LMS parameters
-
-  # Keep the 23.5 row in ref_data: the table has no 24.0 row,
-  # so ages 24.0 to < 24.5 are interpolated between 23.5 and 24.5.
-  # Ages under 24 get NA as do ages >= 240.
+  # The reference grid is 23.5, 24.5, ..., 239.5, 240 months. Ages not on
+  # the grid get L, M, S (and the other reference columns) by linear
+  # interpolation with stats::approx(), within sex, at the unique ages
+  # present in the data.
+  #
+  # The 23.5 row is kept because the table has no 24.0 row: ages 24.0 to
+  # < 24.5 are interpolated between 23.5 and 24.5. Ages under 24 and ages
+  # >= 240 are excluded from uages, find no reference row, and get NA.
   ref_data <- cdcanthro::cdc_ref_data  # ages 23.5, 24.5, ..., 239.5, 240
   uages <- uages[uages >= 24 & uages < 240]
 
-  # does uages contain any values not in reference data?
+  # Interpolate only if some age is off the grid; otherwise subset.
   need_interp <- !all(uages %in% ref_data$age)
   interp_vars <- setdiff(names(ref_data), c('sexn', 'age', 'mref', 'sref'))
 
+  # age is passed in j as list(age = uages) rather than through .SD, so
+  # lapply() does not interpolate age against itself. mref and sref (the
+  # BMI M and S at 240 months) are constant within sex, so one value each
+  # is carried through rather than interpolated.
   if (need_interp) {
     ref_data <- ref_data[,
          c(
@@ -201,12 +205,9 @@ cdc_z <- function(data,
     ref_data <- ref_data[age %in% uages]
   }
 
-  # By using list(age = uages) directly inside the j slot alongside lapply(),
-  # you skip the overhead of allocating intermediate tables
-  # If age were included in .SD, lapply would call approx() on it too --
-  # interpolating age against itself at the target ages, which returns uages back.
-
-  # Compute p95, etc parameters on the tiny reference table
+  # Derived reference quantities (1/(L*S), the +/-2 SD values for the
+  # modified z-scores, p95 and sigma) are computed on the reference table --
+  # one row per sex and unique age -- rather than on the n data rows.
   if (has_wt) {
     ref_data[, let(
       inv_wl_ws = 1 / (wl * ws),
@@ -230,89 +231,103 @@ cdc_z <- function(data,
       sigma    = fifelse(sexn == 1L,
               round(0.3728 + 0.5196 * (age / 12) - 0.0091 * (age / 12)^2, 8),
               round(0.8334 + 0.3712 * (age / 12) - 0.0011 * (age / 12)^2, 8))
-              # rounded to agree with Hales / NCHS
+              # rounded to 8 decimals to match the sigma values in the
+              # CDC SAS program
     )]
   }
 
+  # Positional lookup, not a join: idx[i] is the row of ref_data matching
+  # work[i] on (sex, age), or NA (age outside 24 to < 240, unrecognized sex,
+  # missing age). rc() pulls one reference column at a time through idx, so
+  # no n-row copy of the reference table is made. length(idx) == nrow(work)
+  # holds only if ref_data has one row per (sexn, age); the stopifnot()
+  # guards that. who_z() uses the same pattern.
+  idx <- ref_data[work, on = c(sexn = "sex_n", "age"), which = TRUE]
+  stopifnot(length(idx) == nrow(work))
+  rc  <- function(col) ref_data[[col]][idx]
 
-  # merge ref_data with work in data's row order. See the ROW ALIGNMENT note
-  # above cdc_z().  Note that collapse::join is NOT faster
-  # ref_data's reference column is 'sexn' (from cdc_ref_data); work's is 'sex_n'.
-  dt <- ref_data[work, on = c(sexn = 'sex_n', 'age')]
-
-  # Modified Z-score uses pre-computed values for SD2 etc
   if (has_wt) {
-    dt[, let(
-      waz     = ((wt / wm)^wl - 1) * inv_wl_ws,
-      mod_waz = (wt - wm) / (0.5 * fifelse(wt < wm, wt_sdm2, wt_sdp2))
-    )]
-    dt[abs(wl) < 0.01, waz := log(wt / wm) / ws]
-    # z-scores switch to the logarithmic (L=0)
-    # form when |L| < 0.01, matching the CDC SAS implementation.
-
-    dt[, wap := 100 * pnorm(waz)]
-    dt[, c('wl', 'wm', 'ws', 'wt_sdm2', 'wt_sdp2', 'inv_wl_ws') := NULL]
+    # temporary reference columns, so the |L| < 0.01 line below can subset them
+    work[, let(wl = rc("wl"), wm = rc("wm"), ws = rc("ws"))]
+    work[, waz     := ((wt / wm)^wl - 1) * rc("inv_wl_ws")]
+    work[, mod_waz := (wt - wm) / (0.5 * fifelse(wt < wm, rc("wt_sdm2"), rc("wt_sdp2")))]
+    # z-scores switch to the log (L = 0) form when |L| < 0.01, matching the
+    # CDC SAS program. In cdc_ref_data only hl crosses zero (range -0.39 to
+    # 2.24), so only height can hit the rule, including at interpolated
+    # ages; wl is always <= -0.197, so the line below never fires:
+    # work[abs(wl) < 0.01, waz := log(wt / wm) / ws]
+    work[, wap := 100 * pnorm(waz)]
+    work[, c("wl", "wm", "ws") := NULL]
   }
 
   if (has_ht) {
-    dt[, let(
-      haz     = ((ht / hm)^hl - 1) * inv_hl_hs,
-      mod_haz = (ht - hm) / (0.5 * fifelse(ht < hm, ht_sdm2, ht_sdp2))
-    )]
-    dt[abs(hl) < 0.01, haz := log(ht / hm) / hs]
-    dt[, hap := 100 * pnorm(haz)]
-    dt[, c('hl', 'hm', 'hs', 'ht_sdm2', 'ht_sdp2', 'inv_hl_hs') := NULL]
+    # temporary reference columns, so the |L| < 0.01 line below can subset them
+    work[, let(hl = rc("hl"), hm = rc("hm"), hs = rc("hs"))]
+    work[, haz     := ((ht / hm)^hl - 1) * rc("inv_hl_hs")]
+    work[, mod_haz := (ht - hm) / (0.5 * fifelse(ht < hm, rc("ht_sdm2"), rc("ht_sdp2")))]
+    work[abs(hl) < 0.01, haz := log(ht / hm) / hs]
+    work[, hap := 100 * pnorm(haz)]
+    work[, c("hl", "hm", "hs") := NULL]
   }
 
   if (have_bmi) {
+    # Temporary reference columns. p95 and sigma are also used by the
+    # extended-BMI block below, which subsets rows (bmip >= 95).
+    work[, let(bm = rc("bm"), p95 = rc("p95"), sigma = rc("sigma"))]
+
     # --- ALWAYS COMPUTED ---
-    dt[, bmi_ratio := bmi / bm]
-    dt[, let(
+    work[, bmi_ratio := bmi / bm]
+    work[, let(
       perc_median = (bmi_ratio - 1) * 100,
       bmip95      = 100 * (bmi / p95),
-      mod_bmiz    = (bmi - bm) / (0.5 * fifelse(bmi < bm, bmi_sdm2, bmi_sdp2)),
-      bmiz        = (bmi_ratio^bl - 1) * inv_bl_bs
+      mod_bmiz    = (bmi - bm) / (0.5 * fifelse(bmi < bm, rc("bmi_sdm2"), rc("bmi_sdp2"))),
+      bmiz        = (bmi_ratio^rc("bl") - 1) * rc("inv_bl_bs")
     )]
-    # dt[abs(bl) < 0.01, bmiz := log(bmi / bm) / bs]
-    # bmi_l never comes close to 0
-    dt[, let(bmip = 100 * pnorm(bmiz))]
-    dt[, let(ebp = bmip, ebz = bmiz)]
+    # No log-form switch for BMI: bl in cdc_ref_data is always <= -0.95,
+    # far from the 0.01 threshold used for weight and height.
+    work[, let(bmip = 100 * pnorm(bmiz))]
+    work[, let(ebp = bmip, ebz = bmiz)]
 
     # --- all_vars EXTRAS ONLY ---
     if (isTRUE(all_vars)) {
-      dt[, let(
+      work[, bs := rc("bs")]
+      sref <- rc("sref")
+      work[, let(
         dist_median = bmi - bm,
         z1          = (bmi_ratio - 1) / bs,
         z0          = log(bmi_ratio) / bs
       )]
-      dt[, let(
-        adj_dist_median     = z1 * sref * mref,
+      work[, let(
+        adj_dist_median     = z1 * sref * rc("mref"),
         adj_perc_median     = z1 * 100 * sref,
         log_perc_median     = z0 * 100 * bs,
         adj_log_perc_median = z0 * 100 * sref
       )]
-      setnames(dt, c('bl', 'bm', 'bs'), c('bmi_l', 'bmi_m', 'bmi_s'))
+      rm(sref)
+      work[, let(bmi_l = rc("bl"), bmi_m = rc("bm"), bmi_s = rc("bs"))]
     }
-    drop_cols <- intersect(c('bmi_sdm2', 'bmi_sdp2', 'inv_bl_bs', 'bmi_ratio',
-                             'bm', 'mref', 'sref', 'sexn', 'bl', 'bs'),
-                           names(dt))
-    dt[, (drop_cols) := NULL]
-  }
 
-  # Create Extended z-score for BMI >=95th P.  For children tracking above
-  # the 97th percentile, traditional LMS z-scores flatten out artificially.
-  if (have_bmi) {
-    dt[bmip >= 95, ebp := 90 + 10 * pnorm((bmi - p95) / sigma)]
-    # Cap extended z at 8.21: the largest possible ebz is ~8.2095
-    # ebp can be so close to 100 that ebz calculation will return NA
-    dt[bmip >= 95 & ebp < 100, ebz := qnorm(ebp / 100)]
-    dt[bmip >= 95 & ebp >= 100, ebz := 8.21]
+    drop_cols <- intersect(c('bmi_ratio', 'z1', 'z0'), names(work))
+    for (col in drop_cols) {
+      set(work, j = col, value = NULL)
+    }
 
+    # Extended BMI percentile and z-score for BMI >= 95th percentile
+    # (Wei et al. 2020): above the 95th percentile the LMS z-scores compress
+    # into a narrow range, so BMI is instead modelled as half-normal above
+    # p95 with scale sigma, and the percentile is 90 + 10 * Phi(.).
+    work[bmip >= 95, ebp := 90 + 10 * pnorm((bmi - p95) / sigma)]
+    # ebp can round to exactly 100, where qnorm(1) is Inf. qnorm() of the
+    # largest double below 1 is 8.2095, so 8.21 is the ceiling of what ebz
+    # could ever be and is used as the cap.
+    work[bmip >= 95 & ebp < 100, ebz := qnorm(ebp / 100)]
+    work[bmip >= 95 & ebp >= 100, ebz := 8.21]
 
-  # Preserve the original LMS-based values under 'orig_*' names
-  setnames(dt,
-             c('bmiz',        'bmip',    'ebp',  'ebz'),
+    # Preserve the original LMS-based values under 'orig_*' names
+    setnames(work,
+             c('bmiz',      'bmip',      'ebp',  'ebz'),
              c('orig_bmiz', 'orig_bmip', 'bmip', 'bmiz'))
+    if (!isTRUE(all_vars)) work[, sigma := NULL]
   }
 
   v <- c('bmiz', 'bmip', 'p95', 'bmip95', 'orig_bmip', 'orig_bmiz',
@@ -326,14 +341,8 @@ cdc_z <- function(data,
         'adj_perc_median', 'log_perc_median', 'adj_log_perc_median')
   }
 
-  # Keep only columns that were actually computed
-  v <- intersect(v, names(dt))
-
-  # --- WRITE the RESULTS ONTO `data` ---
-  # `dt` has exactly nrow(data) rows, in data's row order (see the ROW
-  # ALIGNMENT note above cdc_z()), so each column in `v` can be copied
-  # across by position with set() -- no row-id column, no second copy of
-  # the input to re-sort, and no join at the end.
+  # Keep only cols that were actually computed
+  v <- intersect(v, names(work))
 
   # Rename any of data's own columns that would collide with a computed
   # output column. New names are made unique against every other input
@@ -350,13 +359,9 @@ cdc_z <- function(data,
             " to avoid conflict with computed values.")
   }
 
-  stopifnot(nrow(dt) == nrow(data))
-  for (col in v) set(data, j = col, value = dt[[col]])
+  stopifnot(nrow(work) == nrow(data))
+  out <- setDT(c(as.list(data), as.list(work)[v]))
 
-  # Reorder columns to ensure the original ones appear first
-  # desired_order <- c(orig_cols, setdiff(names(data), orig_cols))
-  # setcolorder(data, desired_order, skip_absent=TRUE)
-
-  # return same type of data that was input
-  restore_input_type(data, type$input_was_df, type$input_was_tibble)
+  # return same type of data that was input (out, not data)
+  restore_input_type(out, type$input_was_df, type$input_was_tibble)
 }

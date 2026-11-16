@@ -7,18 +7,21 @@ LMS parameters (L, M, S) in the WHO charts for age- and sex-standardized growth 
 }
 
 \format{
-A data.table with columns for sex (sexn coded as 1 (boys) / 2 (girls)), age in days,
-and LMS values. Variable names represent the weight (wei), length or height (len),
-BMI (bmi), weight-for-length (wfl), or head circumference (headc).  This prefix is
-followed by '_' and then by 'l', 'm', or 's' representing the LMS parameters.
-
-Sexn is coded as '1' (boys) and '2' (girls).
+A data.table with 16716 rows: columns for sex (\code{sexn}, 1 = boys, 2 = girls),
+age in days (\code{agedays}, 0 to 1856), length (\code{len}, 45 to 110 cm), and LMS values.
+Variable names represent weight (\code{wei}), length or height (\code{len}),
+BMI (\code{bmi}), weight-for-length (\code{wfl}), head circumference (\code{headc}),
+arm circumference (\code{armc}), triceps skinfold (\code{tsf}), or subscapular
+skinfold (\code{ssf}). This prefix is followed by '_' and then by 'l', 'm', or 's'
+representing the LMS parameters. The arm circumference and skinfold parameters
+(available from 91 days of age) are not currently used by \code{\link{who_z}}.
 
 In contrast to the sex- and age-standardized metrics, weight-for-length is weight standardized
 for sex and length; it represents the distribution of weights for a specific length. Note that
 the length/height reference values are given in 0.01 cm increments.
 
-The 'denom' variable indicates if the row represents age-standardization or len-standardization.
+The \code{denom} variable is \code{"forage"} for rows indexed by age
+(\code{agedays}) and \code{"forlen"} for weight-for-length rows (indexed by \code{len}).
 }
 
 \usage{
